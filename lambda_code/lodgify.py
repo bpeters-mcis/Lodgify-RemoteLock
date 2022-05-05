@@ -4,32 +4,46 @@ import os
 import logging
 from utils import validate_date_input
 import boto3
+from config import *
 
 
 class Lodgify:
 
-    def __init__(self, config):
+    def __init__(self):
         self.HEADERS = {
             "Accept": "text/plain",
             "X-ApiKey": os.getenv("LODGIFY_API_KEY"),
             "Content-Type": "application/*+json"
         }
 
-        self.config = config
-
 
     def get_booking_details(self, booking_id=None):
         url = "https://api.lodgify.com/v1/reservation/booking/{}".format(booking_id)
-        response = requests.request("GET", url, headers=self.HEADERS)
-        details = json.loads(response.text)
-        return details
+        try:
+            response = requests.request("GET", url, headers=self.HEADERS)
+            details = json.loads(response.text)
+
+            if response.status_code != 200:
+                return "ERROR: Failed to get booking details for booking: {}.  Got status code: {}".format(booking_id, response.status_code)
+            return details
+
+        except Exception as e:
+            return "ERROR: Could not get booking details for {}, got exception error: {}".format(booking_id, e)
 
 
     def get_booking_email(self, booking_id=None):
         url = "https://api.lodgify.com/v2/reservations/bookings/{}".format(booking_id)
-        response = requests.request("GET", url, headers=self.HEADERS)
-        details = json.loads(response.text)
-        return "renter-{}@lodgify.com".format(details['thread_uid'])
+        try:
+            response = requests.request("GET", url, headers=self.HEADERS)
+            details = json.loads(response.text)
+
+            if response.status_code != 200:
+                return "ERROR: Failed to get booking email for booking: {}.  Got status code: {}".format(booking_id, response.status_code)
+
+            return "renter-{}@lodgify.com".format(details['thread_uid'])
+
+        except Exception as e:
+            return "ERROR: Could not get booking email for {}, got exception error: {}".format(booking_id, e)
 
 
     def get_bookings(self, start_date='01-01-2022', end_date='12-31-2022'):
@@ -41,21 +55,30 @@ class Lodgify:
         bookings = []
         url = "https://api.lodgify.com/v1/availability?BookingsOnly=true&IncludeBookingIds=true&periodStart={}&periodEnd={}".format(start_date,
                                                                                                                                     end_date)
-        response = requests.request("GET", url, headers=self.HEADERS)
-        details = json.loads(response.text)
+        try:
+            response = requests.request("GET", url, headers=self.HEADERS)
+            details = json.loads(response.text)
+
+            if response.status_code != 200:
+                return "ERROR: Failed to get bookings, got {} from Lodgify API".format(response.status_code)
+        except Exception as e:
+            return "ERROR: Could not get bookings, got exception error: {}".format(e)
 
         for entry in details:
 
             if entry['is_available']:
+                logging.info(".... available?")
                 continue
 
             if not entry['booking_ids']:
+                logging.info(".... no booking IDs?")
                 continue
 
-            if entry['property_id'] not in self.config['listings']:
+            if entry['property_id'] not in LISTING_MAPPING:
+                logging.info(".... ID not in config?")
                 continue
 
-            logging.info("{} is booked from {} to {}, ID {}".format(self.config['listings'][entry['property_id']]['display_name'],
+            logging.info("{} is booked from {} to {}, ID {}".format(LISTING_MAPPING[entry['property_id']]['display_name'],
                                                                     entry['period_start'],
                                                                     entry['period_end'],
                                                                     entry['booking_ids'][0]))
@@ -71,29 +94,32 @@ class Lodgify:
 
 
     def send_email_message(self, subject=None, message=None, recipient=None):
-        client = boto3.client('ses', aws_access_key_id=os.getenv('AWS_ID'),
-                              aws_secret_access_key=os.getenv('AWS_SECRET'),
-                              region_name='us-east-1')
-        res = client.send_email(
-            Source=self.config['email_configuration']['from_address'],
-            Destination={
-                "ToAddresses": [recipient],
-                "BccAddresses": self.config['email_configuration']['bcc_addresses']
-            },
-            Message={
-                'Body': {
-                    'Html': {
-                        'Charset': 'UTF-8',
-                        'Data': message,
-                    },
-                    'Text': {
-                        'Charset': 'UTF-8',
-                        'Data': message,
-                    },
+        try:
+            client = boto3.client('ses', region_name=AWS_CONFIGURATION['region'])
+            res = client.send_email(
+                Source=EMAIL_CONFIGURATION['from_address'],
+                Destination={
+                    "ToAddresses": [recipient],
+                    "BccAddresses": EMAIL_CONFIGURATION['bcc_addresses']
                 },
-                'Subject': {
-                    'Charset': 'UTF-8',
-                    'Data': subject,
-                },
-            }
-        )
+                Message={
+                    'Body': {
+                        'Html': {
+                            'Charset': 'UTF-8',
+                            'Data': message,
+                        },
+                        'Text': {
+                            'Charset': 'UTF-8',
+                            'Data': message,
+                        },
+                    },
+                    'Subject': {
+                        'Charset': 'UTF-8',
+                        'Data': subject,
+                    },
+                }
+            )
+            return True
+
+        except Exception as e:
+            return "ERROR: Could not send email to user: {} Got error: {}".format(recipient, e)

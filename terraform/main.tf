@@ -46,14 +46,29 @@ resource "aws_iam_role_policy" "this" {
         {
             "Sid": "SendEmail",
             "Effect": "Allow",
-            "Action": [
-                "ses:*"
-            ],
+            "Action": "ses:*",
             "Resource": "*"
-        },
+        }
     ]
   }
 POLICY
+}
+
+#-------------------------------------------------------------------------------
+# Lambda dependency Layer
+#-------------------------------------------------------------------------------
+# Create zip file from source
+data "archive_file" "deps_layer" {
+  type        = "zip"
+  source_dir  = "../dependency_layer/"
+  output_path = "../zip_files/dependency_layer.zip"
+}
+
+resource "aws_lambda_layer_version" "lambda_layer" {
+  filename            = "../zip_files/dependency_layer.zip"
+  layer_name          = "${var.lambda_function_name}-dependencies"
+  source_code_hash    = data.archive_file.deps_layer.output_base64sha256
+  compatible_runtimes = ["python3.9"]
 }
 
 ###############
@@ -63,7 +78,7 @@ POLICY
 # Create zip file of the source code
 data "archive_file" "this" {
   type        = "zip"
-  source_file = "../lambda_code/*"
+  source_dir = "../lambda_code"
   output_path = "../zip_files/lambda.zip"
 }
 
@@ -71,13 +86,21 @@ data "archive_file" "this" {
 resource "aws_lambda_function" "this" {
   filename         = "../zip_files/lambda.zip"
   function_name    = var.lambda_function_name
+  layers           = [aws_lambda_layer_version.lambda_layer.arn]
   role             = aws_iam_role.this.arn
-  handler          = "guest_hander.handler"
+  handler          = "guest_handler.lambda_handler"
   runtime          = "python3.9"
   memory_size      = var.lambda_memory_size
   timeout          = var.lambda_execution_timeout
   source_code_hash = data.archive_file.this.output_base64sha256
   environment {
+    variables = {
+      LODGIFY_API_KEY = var.lodgify_api_key,
+      LOCK_CLIENT = var.lock_client,
+      LOCK_SECRET = var.lock_secret,
+      LOCK_CODE = var.lock_code,
+      SLACK_WEBHOOK = var.slack_webhook
+    }
 
   }
 }
