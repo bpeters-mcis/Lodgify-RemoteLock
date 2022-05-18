@@ -3,11 +3,12 @@ import json
 import random
 import os
 import logging
+from config import *
 
 
 class Lock:
 
-    def __init__(self, config):
+    def __init__(self):
         self.host = "https://connect.remotelock.com/"
         self.api_host = "https://api.remotelock.com/"
         self.token = self.get_token()
@@ -16,7 +17,6 @@ class Lock:
             "Content-type": "application/json",
             "Authorization": "Bearer {}".format(self.token)
         }
-        self.config = config
 
 
     def get_token(self):
@@ -89,14 +89,14 @@ class Lock:
             existing_pins[entry['attributes']['pin']] = entry['attributes']['name']
 
         while True:
-            new_pin = random.randint(self.config['global_lock_configuration']['random_pin_start'],self.config['global_lock_configuration']['random_pin_end'])
+            new_pin = random.randint(GLOBAL_LOCK_CONFIGURATION['random_pin_start'],GLOBAL_LOCK_CONFIGURATION['random_pin_end'])
             if new_pin not in existing_pins:
                 return new_pin
 
 
     def grant_user_access(self, device_id, guest_id):
         # Add Access
-        schedule_id = self.config['global_lock_configuration']['schedule_id']
+        schedule_id = GLOBAL_LOCK_CONFIGURATION['schedule_id']
         params = {
             "attributes": {
                 "accessible_type": "lock",
@@ -105,7 +105,12 @@ class Lock:
             }
         }
 
-        response = self.send_post_request(url="access_persons/{}/accesses".format(guest_id), params=params)
+        try:
+            response = self.send_post_request(url="access_persons/{}/accesses".format(guest_id), params=params)
+            return "Success"
+        except Exception as e:
+            return "ERROR: Could not add access schedule to guest {}! Got error: {}".format(guest_id, e)
+
 
 
 
@@ -114,16 +119,20 @@ class Lock:
         params = {
             "type": "access_guest",
             "attributes": {
-                "starts_at": "{}T{}".format(start, self.config['rental_configuration']['check_in_time']),
-                "ends_at": "{}T{}".format(end, self.config['rental_configuration']['check_out_time']),
+                "starts_at": "{}T{}".format(start, RENTAL_CONFIGURATION['check_in_time']),
+                "ends_at": "{}T{}".format(end, RENTAL_CONFIGURATION['check_out_time']),
                 "name": name,
                 "email": email,
                 "pin": pin
             }
         }
-        response = self.send_post_request(url="access_persons",
-                                          params=params)
-        return response['data']['id']
+        try:
+            response = self.send_post_request(url="access_persons",
+                                              params=params)
+            return response['data']['id']
+        except Exception as e:
+            return "ERROR: Could not create new guest {}! Got error: {}".format(name, e)
+
 
 
     def create_new_guest(self, name, email, start, end, device_id, pin=None):
@@ -131,5 +140,13 @@ class Lock:
         if not pin:
             pin = self.create_pin()
         new_guest_id = self.create_new_user(name=name, email=email, start=start, end=end, pin=pin)
-        self.grant_user_access(device_id=device_id, guest_id=new_guest_id)
+
+        if "ERROR" in new_guest_id:
+            return new_guest_id
+
+        access = self.grant_user_access(device_id=device_id, guest_id=new_guest_id)
+
+        if "ERROR" in access:
+            return access
+
         return pin
