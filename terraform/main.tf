@@ -1,4 +1,25 @@
 ###############
+# S3 Bucket
+###############
+resource "aws_s3_bucket" "this" {
+  bucket = var.bucket
+
+  versioning {
+    enabled = true
+  }
+
+  server_side_encryption_configuration {
+    rule {
+      apply_server_side_encryption_by_default {
+        sse_algorithm = "AES256"
+      }
+    }
+  }
+
+}
+
+
+###############
 # IAM Assets
 ###############
 # Create the lambda role
@@ -48,6 +69,21 @@ resource "aws_iam_role_policy" "this" {
             "Effect": "Allow",
             "Action": "ses:*",
             "Resource": "*"
+        },
+        {
+            "Sid": "UseS3",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject",
+                "s3:PutObjectAcl"
+            ],
+            "Resource": [
+                "arn:aws:s3:::${var.bucket}",
+                "arn:aws:s3:::${var.bucket}/*"
+            ]
         }
     ]
   }

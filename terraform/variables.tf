@@ -1,7 +1,7 @@
 variable "lambda_execution_rule_expression" {
   type        = string
   description = "The rate expression to run the lambda, ex: 'rate(1 days)'"
-  default = "rate(24 hours)"
+  default = "cron(30 13 ? * * *)"
 }
 
 variable "lambda_function_name" {
@@ -18,7 +18,7 @@ variable "lambda_memory_size" {
 
 variable "lambda_execution_timeout" {
   type        = number
-  default     = 500
+  default     = 600
   description = "Timeout in seconds for the lambda functions"
 }
 
@@ -46,5 +46,9 @@ variable "lock_code" {
 }
 
 variable "slack_webhook" {
+  type = string
+}
+
+variable "bucket" {
   type = string
 }

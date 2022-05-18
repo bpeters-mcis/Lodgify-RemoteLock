@@ -5,7 +5,10 @@ from lock import Lock
 from lodgify import Lodgify
 import os
 import logging
-from config import CODE_EMAIL_TEMPLATE, RENTAL_CONFIGURATION, DAYS_IN_FUTURE_TO_CHECK, LISTING_MAPPING, AWS_CONFIGURATION, EMAIL_CONFIGURATION
+from config import CODE_EMAIL_TEMPLATE, RENTAL_CONFIGURATION, DAYS_IN_FUTURE_TO_CHECK, LISTING_MAPPING, \
+    AWS_CONFIGURATION, EMAIL_CONFIGURATION
+
+from cleaning_automation import CleaningNotifier, send_email, send_cleaning_slack_output
 
 ##############
 # Configuration
@@ -50,38 +53,51 @@ def send_slack_output(results, errors):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Oscoda Lock Automation Results For {}\n=================================\nTrying to generate codes for rentals up to {} days from now.\n".format(datetime.now(), DAYS_IN_FUTURE_TO_CHECK)
+                    "text": "=================================\nOscoda Lock Automation Results For {}\n=================================\nTrying to generate codes for rentals up to {} days from now.\n".format(datetime.now(), DAYS_IN_FUTURE_TO_CHECK)
                 }
             },
+        ]
+    }
+
+    if results['codes_sent']:
+        message['blocks'].append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": "*Codes Sent*\n-----------------\n{}".format("".join(results['codes_sent']))
                 }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*Errors*\n-----------------\n{}".format("".join(errors))
-                }
-            },
+            }
+        )
+
+    if results['codes_skipped']:
+        message['blocks'].append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": "*Codes Skipped*\n-----------------\n{}".format("".join(results['codes_skipped']))
                 }
-            },
-        ]
-    }
+            }
+        )
+
+    if errors:
+        message['blocks'].append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Errors*\n-----------------\n{}".format("".join(errors))
+                }
+            }
+        )
 
     headers = {
         "Accept": "application/json",
         "Content-type": "application/json"
     }
     response = requests.post(os.getenv("SLACK_WEBHOOK"), headers=headers, json=message)
+
 
 
 def lambda_handler(event, context):
@@ -198,6 +214,12 @@ def lambda_handler(event, context):
 
     # Post to slack
     send_slack_output(results, errors)
+
+    # Do the cleaning updates
+    processor = CleaningNotifier()
+    processor.send_update_cleaning_email()
+
+
 
 if __name__ == "__main__":
     lambda_handler("", "")
