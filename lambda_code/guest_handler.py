@@ -19,6 +19,11 @@ logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
 LIVE = True
 
 def report_errors(errors):
+    """
+    Sends an email to the error reporting destination, with the errors
+    :param errors:
+    :return:
+    """
     client = boto3.client('ses', region_name=AWS_CONFIGURATION['region'])
     res = client.send_email(
         Source=EMAIL_CONFIGURATION['from_address'],
@@ -46,6 +51,12 @@ def report_errors(errors):
 
 
 def send_slack_output(results, errors):
+    """
+    Sends a slack message
+    :param results:
+    :param errors:
+    :return:
+    """
     message = {
         "text": "The Lock Automation Has Run!",
         "blocks": [
@@ -143,6 +154,11 @@ def lambda_handler(event, context):
         logging.info("{}, Guest: {}".format(LISTING_MAPPING[booking['property_id']]['display_name'],
                                             booking['guest']['name']))
 
+        # Skip rentals without remote locks
+        if not LISTING_MAPPING[booking['property_id']]['lock_device_id']:
+            logging.info(f"-- No action, no remote lock for {LISTING_MAPPING[booking['property_id']]['display_name']}")
+            continue
+
         # Skip any that are not "booked" status, they wouldn't need a door code yet
         if booking['status'] != "Booked":
             logging.info("-- No action, reservation not booked (no payment yet?)")
@@ -157,13 +173,12 @@ def lambda_handler(event, context):
                 logging.info("--- Code already sent!")
                 code_sent = True
                 results['codes_skipped'].append("*Property:* {}, *Guest:* {} {}-{} (Already sent)\n".format(LISTING_MAPPING[booking['property_id']]['display_name'],
-                                                                       booking['guest']['name'], booking['arrival'], booking['departure']))
+                                                                                                            booking['guest']['name'], booking['arrival'], booking['departure']))
                 break
 
         # Create and send a door code if not already done
         if not code_sent:
             logging.info("--- Must create and send a new code.")
-            pin = locks.create_pin()
 
             # Get recipient email address
             recipient_email = Lodge.get_booking_email(booking_id=entry)
@@ -190,7 +205,7 @@ def lambda_handler(event, context):
                 # Send the renter the message with the door code
                 message_send = Lodge.send_email_message(
                     subject="Door code for {}, {}".format(booking['guest']['name'], LISTING_MAPPING[booking['property_id']]['display_name']),
-                    message=CODE_EMAIL_TEMPLATE.format(pin, RENTAL_CONFIGURATION['check_in_time'],
+                    message=CODE_EMAIL_TEMPLATE.format(user_create, RENTAL_CONFIGURATION['check_in_time'],
                                                        RENTAL_CONFIGURATION['check_out_time']),
                     recipient=Lodge.get_booking_email(booking_id=entry))
 
@@ -202,9 +217,7 @@ def lambda_handler(event, context):
 
                 results['codes_sent'].append("*Property:* {}, *Guest:* {} {}-{}\n".format(LISTING_MAPPING[booking['property_id']]['display_name'],
                                                                                           booking['guest']['name'], booking['arrival'], booking['departure']))
-                logging.info("----- Created code ({}) for user, effective {} - {}".format(pin,
-                                                                                          booking['arrival'],
-                                                                                          booking['departure']))
+                logging.info("----- Created code for user, effective {} - {}".format(booking['arrival'], booking['departure']))
             else:
                 logging.info("----- TESTING MODE: Would create and message code to this user.")
 

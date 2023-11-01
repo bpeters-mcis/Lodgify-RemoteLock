@@ -117,15 +117,15 @@ def send_email(message):
 
 
 class CleaningNotifier:
-    
+
     def __init__(self):
 
         self.lodgify_client = Lodgify()
         self.current_bookings = self._get_current_bookings()
         self.previous_bookings = self._get_previous_bookings()
         self.bookings_have_changed = False
-        
-        
+
+
     def _save_updated_bookings(self):
         """
         Removes the state from consolidated bookings, and removes any cancelled bookings.  Then it saves the JSON
@@ -201,7 +201,7 @@ class CleaningNotifier:
 
         return json_content
 
-    
+
     def _get_current_bookings(self):
         """
         Polls the Lodgify API and gets a list of booking IDs for the configured properties between now and the number
@@ -211,7 +211,7 @@ class CleaningNotifier:
         # Get start and end dates to search
         start_date = datetime.now().strftime("%m-%d-%Y")
         end_date = (datetime.now() + timedelta(days=DAYS_IN_FUTURE_FOR_CLEANINGS)).strftime("%m-%d-%Y")
-    
+
         # Get all bookings from Lodgify, for the specified date range
         logging.info("================")
         logging.info("Getting Bookings from Lodgify: {} - {}".format(start_date, end_date))
@@ -219,8 +219,8 @@ class CleaningNotifier:
         logging.info("")
         bookings = self.lodgify_client.get_bookings(start_date=start_date, end_date=end_date)
         return bookings
-    
-    
+
+
     def _compare_bookings(self):
         """
         Takes the current bookings from Lodgify and compares them to the previous bookings from the last run. Creates
@@ -238,9 +238,14 @@ class CleaningNotifier:
         logging.info("Checking previous bookings against current")
         logging.info("-------------------")
         for unit, bookings in self.previous_bookings.items():
+
+            if unit not in self.consolidated_bookings:
+                self.consolidated_bookings[unit] = {}
+
             logging.info(f"{unit}")
             for booking, details in bookings.items():
                 logging.info(f"- Checking booking: {booking}")
+
 
                 if booking not in self.consolidated_bookings[unit]:
                     if details['check_out_date'] == datetime.now().strftime("%Y-%m-%d"):
@@ -269,7 +274,7 @@ class CleaningNotifier:
             logging.info(f"{unit}")
             for booking in bookings:
                 logging.info(f"- Checking booking: {booking}")
-                if booking not in self.previous_bookings[unit]:
+                if booking not in self.previous_bookings.get(unit, {}):
                     logging.info(f"-- New (not in old bookings list)")
                     self.consolidated_bookings[unit][booking]['state'] = "New"
                     self.bookings_have_changed = True
@@ -333,7 +338,7 @@ class CleaningNotifier:
 
             for booking, details in bookings.items():
 
-                line = f"{details['name']} - In: {details['check_in_date']}, Out: {details['check_out_date']}"
+                line = f"{details['name']} - In: {details['check_in_date'][5:]}, Out: {details['check_out_date'][5:]}"
                 if details['state'] in ['Changed', 'Cancelled', 'New']:
                     line += f" ({details['state']}!)"
 
@@ -361,33 +366,41 @@ class CleaningNotifier:
         html_email_output = ""
 
         for unit, bookings in self.consolidated_bookings.items():
+            last_checkout = None
             html_email_output += f"<b>{unit}</b><br>"
             html_email_output += "----------------------<br>"
             logging.info(f"{unit}")
             logging.info("---------------")
-        
+
             for booking, details in bookings.items():
 
-                if details['state'] in ['Changed', 'Cancelled', 'New']:
-                    line = f"""<font style="color:{EMAIL_LINE_COLOR_MAPPINGS[details['state']]}";><b>In:</b> {details['check_in_date']}, <b>Out:</b> {details['check_out_date']} ({details['state']}!)</font><br>"""
+                if not last_checkout:
+                    line = ""
+                elif details['check_in_date'][5:] == last_checkout:
+                    line = "&nbsp;&nbsp;&nbsp;&nbsp;(*** IS A TURNOVER CLEAN ***)<br>"
                 else:
-                    line = f"<b>In:</b> {details['check_in_date'][5:]}, <b>Out:</b> {details['check_out_date'][5:]}<br>"
+                    line = "<br>"
 
-                logging.info(line)
+                if details['state'] in ['Changed', 'Cancelled', 'New']:
+                    line += f"""<font style="color:{EMAIL_LINE_COLOR_MAPPINGS[details['state']]}";><b>In:</b> {details['check_in_date'][5:]}, <b>Out:</b> {details['check_out_date'][5:]} ({details['state']}!)</font>"""
+                else:
+                    line += f"<b>In:</b> {details['check_in_date'][5:]}, <b>Out:</b> {details['check_out_date'][5:]}"
+
                 html_email_output += line
+                last_checkout = details['check_out_date'][5:]
 
-            html_email_output += "<br>"
+            html_email_output += "<br><br>"
             logging.info("")
 
         return html_email_output
-        
-    
+
+
     def send_update_cleaning_email(self):
         """
         Checks all bookings and compares to previous run, to generate and send a new cleaning update email if
         applicable
         """
-   
+
         self._get_details_for_current_bookings()
         self._compare_bookings()
 
@@ -412,4 +425,6 @@ if __name__ == "__main__":
     logger.setLevel(logging.INFO)
     logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
     processor = CleaningNotifier()
-    processor.send_update_cleaning_email()
+    processor._get_details_for_current_bookings()
+
+    #processor.send_update_cleaning_email()

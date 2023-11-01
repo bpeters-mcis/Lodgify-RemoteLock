@@ -2,6 +2,11 @@ import datetime
 import logging
 
 def validate_date_input(dates=[]):
+    """
+    Makes sure provided dates match expected format of MM-DD-YYYY
+    :param dates: Dates to check
+    :return: True or False
+    """
     expected_format = "%m-%d-%Y"
 
     for date in dates:

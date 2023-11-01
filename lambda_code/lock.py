@@ -83,14 +83,17 @@ class Lock:
 
 
     def create_pin(self):
+        logging.info("- Creating PIN")
         existing_pins = {}
         existing_users = self.send_get_request(url="access_persons")
         for entry in existing_users['data']:
             existing_pins[entry['attributes']['pin']] = entry['attributes']['name']
+        logging.info(f"-- Got {len(existing_pins)} existing pins")
 
         while True:
             new_pin = random.randint(GLOBAL_LOCK_CONFIGURATION['random_pin_start'],GLOBAL_LOCK_CONFIGURATION['random_pin_end'])
             if new_pin not in existing_pins:
+                logging.info(f"--- using random pin of {new_pin}")
                 return new_pin
 
 
@@ -129,6 +132,8 @@ class Lock:
         try:
             response = self.send_post_request(url="access_persons",
                                               params=params)
+            self.lock_pin = response['data']['attributes']['pin']
+            logging.info(f"------ Remotelock reports a PIN of {self.lock_pin}")
             return response['data']['id']
         except Exception as e:
             return "ERROR: Could not create new guest {}! Got error: {}".format(name, e)
@@ -139,6 +144,7 @@ class Lock:
 
         if not pin:
             pin = self.create_pin()
+
         new_guest_id = self.create_new_user(name=name, email=email, start=start, end=end, pin=pin)
 
         if "ERROR" in new_guest_id:
@@ -149,4 +155,10 @@ class Lock:
         if "ERROR" in access:
             return access
 
-        return pin
+        return self.lock_pin
+
+
+if __name__ == "__main__":
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logging.basicConfig(format='%(levelname)s:  %(message)s', level=logging.INFO)
